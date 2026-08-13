@@ -216,3 +216,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project: trained weights, training runs, and generated/derived datasets
+# (source data in data/raw/ and data/detect/cvat_import.zip are committed --
+# they can't be regenerated. Everything else below can, via scripts/, so it's ignored)
+weights/*.pt
+/*.pt
+runs/
+data/detect/images/
+data/detect/labels/
+data/detect/data.yaml
+data/classify/
+data/audit_report.json
+

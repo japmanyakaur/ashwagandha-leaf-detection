@@ -53,7 +53,7 @@ committed rather than gitignored.
 
 - `detect/images/{train,val,test}/`, `detect/labels/{train,val,test}/`, `detect/data.yaml`
   — the actual training dataset, built from `cvat_import.zip` by `scripts/split_dataset.py`.
-  `scripts/train_finder.py` consumes `detect/data.yaml`.
+  `notebooks/train_finder.ipynb` consumes `detect/data.yaml`.
 - `classify/` — Stage 2 classification dataset (`train/val` × `ashwagandha/not_ashwagandha`),
   built via `scripts/prepare_classifier_data.py`.
 - `audit_report.json` — output of `notebooks/dataset_audit.ipynb`.

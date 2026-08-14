@@ -7,7 +7,7 @@ This script reads straight out of that zip file (no need to unzip it first),
 drops the 6 duplicate photos notebooks/dataset_audit.ipynb flagged, shuffles
 what's left with a fixed seed (so re-running this gives the same split every
 time), and copies everything into images/ and labels/ folders. Also writes
-data.yaml so train_finder.py knows where to find things.
+data.yaml so notebooks/train_finder.ipynb knows where to find things.
 
 Run notebooks/dataset_audit.ipynb first if data/audit_report.json doesn't
 exist yet, then:

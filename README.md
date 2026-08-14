@@ -106,8 +106,9 @@ python3 scripts/auto_label.py --weights weights/best_m.pt
 # 3. Turn the CVAT export into an actual train/val/test dataset
 python3 scripts/split_dataset.py
 
-# 4. Fine-tune the Finder
-python3 scripts/train_finder.py --weights weights/best_m.pt
+# 4. Fine-tune the Finder -- open this in Jupyter (checkpoints every epoch,
+#    auto-resumes if interrupted, checks the test set and shows the plots inline)
+notebooks/train_finder.ipynb
 
 # 5. Build the Stage 2 classification dataset (needs negatives, see above)
 python3 scripts/prepare_classifier_data.py
@@ -131,12 +132,12 @@ data/
 weights/                 model checkpoints (gitignored, see weights/README.md)
 notebooks/
   dataset_audit.ipynb    dataset dedupe/dimension/corruption audit, with duplicate photos shown inline
+  train_finder.ipynb     fine-tunes the Stage 1 detector, auto-resumes if interrupted, checks the test set
   pipeline_demo.ipynb    runs both stages on sample photos and displays the results inline
 scripts/
   auto_label.py          Stage 1 pseudo-labeling for bootstrapping box labels
   split_dataset.py       turns the CVAT export into a train/val/test dataset
   prepare_classifier_data.py   builds the Stage 2 train/val folder structure
-  train_finder.py        fine-tunes the Stage 1 YOLO26 detector
   train_checker.py       fine-tunes the Stage 2 YOLO26-cls classifier
 ```
 

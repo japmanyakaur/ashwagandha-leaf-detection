@@ -7,9 +7,9 @@ Drop trained checkpoints here:
 
 | File | Used by | Source |
 |---|---|---|
-| `leaf_localisation.pt` (or any name) | `scripts/auto_label.py`, `scripts/train_finder.py --weights` | Prior `leaf-localisation` project's trained YOLO26 detector — gives Stage 1 a head start instead of training from COCO weights. |
+| `leaf_localisation.pt` (or any name) | `scripts/auto_label.py`, `notebooks/train_finder.ipynb` | Prior `leaf-localisation` project's trained YOLO26 detector — gives Stage 1 a head start instead of training from COCO weights. |
 | `checker.pt` (or any name) | `notebooks/pipeline_demo.ipynb` | Output of `scripts/train_checker.py` once Stage 2 has been trained. |
 
-If no checkpoint is supplied, `scripts/train_finder.py` and `scripts/train_checker.py`
+If no checkpoint is supplied, `notebooks/train_finder.ipynb` and `scripts/train_checker.py`
 fall back to Ultralytics' pretrained `yolo26{size}.pt` / `yolo26{size}-cls.pt` COCO
 weights (auto-downloaded), defaulting to size `m`.

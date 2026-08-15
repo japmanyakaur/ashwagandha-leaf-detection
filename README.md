@@ -1,29 +1,22 @@
-# ashwagandha-leaf-detection
+# Ashwagandha-Leaf-Detection
 
 A computer vision system that finds *Ashwagandha* (*Withania somnifera*) leaves
-specifically — not just any leaf — in cluttered real-world photos (soil, pots, other
+specifically  in cluttered real-world photos (soil, pots, other
 foliage). Extends a prior generic leaf detector (single `leaf` class, YOLO26-based)
 with species-level discrimination.
 
 ## Architecture: two stages
 
-A generic detector can only say "this looks leaf-shaped" — it has no species concept.
-Species ID needs a dedicated second model, and it benefits from seeing an
-already-isolated leaf rather than a cluttered scene. So the pipeline is split in two:
+The pipeline is split in two:
 
 1. **Finder (Stage 1, detection)** — a YOLO26 object detector that draws boxes around
-   anything leaf-shaped in a cluttered photo. Reuses/fine-tunes the prior
-   `leaf-localisation` model. Tuned for **recall** (low confidence threshold) — false
-   positives here get filtered out by Stage 2.
+    leaf in a cluttered photo. Fine-tunes the prior
+   `leaf-localisation` model. 
 2. **Checker (Stage 2, classification)** — a YOLO26-cls binary classifier
    (`ashwagandha` vs `not_ashwagandha`) that looks inside each box the Finder proposed.
    By this point the leaf is already cropped out of the cluttered background, so this
    is close to a controlled, single-leaf classification problem. Tuned for
    **precision** (higher confidence threshold).
-
-Splitting it this way also splits the data requirements: Stage 1 needs boxed
-cluttered-scene photos (expensive to label), while Stage 2 just needs whole-image
-species labels (cheap — no boxes required).
 
 ### Research reference
 
@@ -32,54 +25,43 @@ classification from visual characteristics of leaves using computer vision and d
 neural networks"](https://doi.org/10.1016/j.ecoinf.2024.102683) (*Ecological
 Informatics*), which classifies medicinal/poisonous/weed leaves at ~99.6% accuracy
 using a ResNeSt backbone with Channel Attention + Spatial Attention ("SCAM-Herb") and
-Fast AutoAugment. Two things carry over directly: their setting is single-leaf,
-plain-background classification (which is what Stage 2 sees, thanks to Stage 1's
-cropping) and their reliance on strong automated augmentation to fight overfitting on
-a small dataset — `scripts/train_checker.py` enables Ultralytics' built-in
-`randaugment` by default for the same reason.
-
-**Not yet implemented, but a natural upgrade path:** replacing `yolo26-cls` in Stage 2
-with a purpose-built ResNeSt + Channel/Spatial Attention classifier matching the
-paper's architecture. This isn't justified yet with the current dataset size (146
-positive images, no negatives in hand at time of writing) — `yolo26-cls` is proven,
-fast to train, and shares tooling with Stage 1. Worth revisiting once more data (and a
-multi-class need, e.g. distinguishing several look-alike species) exists.
+Fast AutoAugment. 
 
 ## Current Plan
 
-STEP 1
-146 Ashwagandha images
-        ↓
-STEP 2
-Add existing best.pt
-        ↓
-STEP 3
-Use best.pt to AUTO-LABEL leaves
-        ↓
-STEP 4
- manually check/correct those boxes
-        ↓
-STEP 5
-Create proper train/val/test dataset
-        ↓
-STEP 6
-Fine-tune YOLO26m
-        ↓
-STEP 7
-Check Precision / Recall / mAP50 / mAP50-95
-        ↓
-STEP 8
-Find what the model gets wrong
-        ↓
-STEP 9
-Add hard negatives + improve dataset
-        ↓
-STEP 10
-Train again
-        ↓
-STEP 11
-Only THEN decide whether
-Checker / SCAM-Herb is needed
+STEP 1 <br>
+146 Ashwagandha images <br>
+        ↓<br>
+STEP 2<br>
+Add existing best.pt<br>
+        ↓<br>
+STEP <br>
+Use best.pt to AUTO-LABEL leaves<br>
+        ↓<br>
+STEP 4<br>
+ manually check/correct those boxes<br>
+        ↓<br>
+STEP 5<br>
+Create proper train/val/test dataset<br>
+        ↓<br>
+STEP 6<br>
+Fine-tune YOLO26m<br>
+        ↓<br>
+STEP 7<br>
+Check Precision / Recall / mAP50 / mAP50-95<br>
+        ↓<br>
+STEP 8<br>
+Find what the model gets wrong<br>
+        ↓<br>
+STEP 9<br>
+Add hard negatives + improve dataset<br>
+        ↓<br>
+STEP 10<br>
+Train again<br>
+        ↓<br>
+STEP 11<br>
+Decide whether Checker / SCAM-Herb is needed<br>
+<br>
 
 
 ## Setup
@@ -141,8 +123,3 @@ scripts/
   train_checker.py       fine-tunes the Stage 2 YOLO26-cls classifier
 ```
 
-Why the split: `notebooks/` is for stuff you want to look at while it runs --
-poking at duplicate photos, eyeballing pipeline output. `scripts/` is for stuff
-that just needs to run start-to-finish unattended, especially the two training
-scripts, which can take a long time and don't need a browser tab open the
-whole time.

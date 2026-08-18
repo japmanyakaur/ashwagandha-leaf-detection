@@ -26,20 +26,27 @@ No competing plant species or weeds appear in-frame in this batch, so it doesn't
 stress-test species discrimination against visually similar plants — worth sourcing
 more varied negatives/hard-negatives later.
 
-## `raw/negatives/<species>/` (not yet populated)
+## `raw/negatives/<species>/`
 
-Needed for Stage 2 (Checker) training as the `not_ashwagandha` class. Plan: reuse
-other-species images from the prior `leaf-localisation` project (PlantDoc, etc.).
-Add one subfolder per species/source, e.g.:
+Needed for Stage 2 (Checker) training as the `not_ashwagandha` class. One
+subfolder per species/source, e.g.:
 
 ```
+data/raw/negatives/downloaded_leaves/*.jpg
 data/raw/negatives/plantdoc/*.jpg
-data/raw/negatives/soycotton/*.jpg
 ```
 
 `scripts/prepare_classifier_data.py` flattens all subfolders into a single
 `not_ashwagandha` class and will refuse to run (with a clear error) until at least
 one image exists here.
+
+**`downloaded_leaves/`** (populated 2026-08-14): 125 images, single isolated leaf
+per photo, uniformly 256x256, clearly a different species from ashwagandha
+(serrated leaf margins vs. ashwagandha's smooth ovate shape; some show disease
+spotting). Exact source/species unconfirmed -- style is consistent with a
+PlantVillage-type dataset but that's a guess, not verified. Audited: 125 unique
+files (no internal duplicates), no corruption, no overlap possible with
+`raw/ashwagandha/` (different dimensions entirely -- 256x256 vs 600x450).
 
 ## `detect/cvat_import.zip` (committed)
 
@@ -54,6 +61,14 @@ committed rather than gitignored.
 - `detect/images/{train,val,test}/`, `detect/labels/{train,val,test}/`, `detect/data.yaml`
   — the actual training dataset, built from `cvat_import.zip` by `scripts/split_dataset.py`.
   `notebooks/train_finder.ipynb` consumes `detect/data.yaml`.
+- `crops/ashwagandha/` — individual leaves cropped out of `raw/ashwagandha/` using the
+  trained Finder, via `scripts/crop_positives.py`. This is what actually feeds Stage 2 as
+  the `ashwagandha` class now, not the raw whole-plant photos directly -- a classifier
+  trained on whole photos vs. isolated leaves just learns to tell those two photography
+  styles apart (whole cluttered pot photo vs. single leaf on its own), not the actual
+  species difference, since it never has to look at a genuinely single leaf during
+  training. Cropped the same way `scripts/pipeline_infer.py` crops at inference time, so
+  training data matches what Stage 2 actually gets fed in production.
 - `classify/` — Stage 2 classification dataset (`train/val` × `ashwagandha/not_ashwagandha`),
-  built via `scripts/prepare_classifier_data.py`.
+  built via `scripts/prepare_classifier_data.py` from `crops/ashwagandha/` + `raw/negatives/`.
 - `audit_report.json` — output of `notebooks/dataset_audit.ipynb`.

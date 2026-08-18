@@ -35,7 +35,7 @@ using a ResNeSt backbone with Channel Attention + Spatial Attention ("SCAM-Herb"
 Fast AutoAugment. Two things carry over directly: their setting is single-leaf,
 plain-background classification (which is what Stage 2 sees, thanks to Stage 1's
 cropping) and their reliance on strong automated augmentation to fight overfitting on
-a small dataset — `scripts/train_checker.py` enables Ultralytics' built-in
+a small dataset — `notebooks/train_checker.ipynb` enables Ultralytics' built-in
 `randaugment` by default for the same reason.
 
 **Not yet implemented, but a natural upgrade path:** replacing `yolo26-cls` in Stage 2
@@ -45,42 +45,34 @@ positive images, no negatives in hand at time of writing) — `yolo26-cls` is pr
 fast to train, and shares tooling with Stage 1. Worth revisiting once more data (and a
 multi-class need, e.g. distinguishing several look-alike species) exists.
 
-## Current Plan
+## Current Status
 
-STEP 1
-146 Ashwagandha images
-        ↓
-STEP 2
-Add existing best.pt
-        ↓
-STEP 3
-Use best.pt to AUTO-LABEL leaves
-        ↓
-STEP 4
- manually check/correct those boxes
-        ↓
-STEP 5
-Create proper train/val/test dataset
-        ↓
-STEP 6
-Fine-tune YOLO26m
-        ↓
-STEP 7
-Check Precision / Recall / mAP50 / mAP50-95
-        ↓
-STEP 8
-Find what the model gets wrong
-        ↓
-STEP 9
-Add hard negatives + improve dataset
-        ↓
-STEP 10
-Train again
-        ↓
-STEP 11
-Only THEN decide whether
-Checker / SCAM-Herb is needed
+**Stage 1 (Finder)**
+- Trained on the CVAT-reviewed boxes, evaluated on a genuinely held-out test set (14 photos never touched during training)
+- Test mAP50: **0.854**, test mAP50-95: **0.754**
+- Known weakness: less confident on dense, overlapping leaf clusters than on isolated leaves — not yet addressed
 
+**Stage 2 (Checker)**
+Early training runs all reported a suspiciously perfect 100% accuracy — turned out to be the model learning shortcuts instead of species. Four separate shortcuts were found and fixed, one at a time, all in `scripts/prepare_classifier_data.py`:
+
+1. **Photo composition** — positives were whole cluttered plant photos, negatives were isolated studio photos. Trivially separable without looking at species. Fixed by cropping positives down to single leaves before training.
+2. **Resampling fingerprint** — negatives had been resized/compressed one extra time compared to positives, leaving a detectable artifact. Fixed by routing both classes through an identical final resize/save step.
+3. **Background-blend seam** — only negatives were ever composited onto a new background, so the synthetic edge itself was a giveaway. Fixed by running both classes through the identical segment-and-composite step.
+4. **Dense-cluster segmentation gaps** — some leaves (in dense, overlapping clusters) have no real background nearby to segment against. Added a confidence check plus a cruder fallback segmentation method, so both classes get consistent treatment instead of one class occasionally leaking its untouched original.
+
+Also added a proper held-out **test split** (previously only train/val — val is exactly what checkpoint selection optimizes against, so it was never a neutral number).
+
+**Final, trustworthy result: 96.8% accuracy on 125 held-out test images.**
+- Every mistake was a false positive on the negative class — it never missed a real ashwagandha leaf
+- Expected, given negatives are outnumbered roughly 5:1 by positives
+
+**Checkpoints**
+- Both stages now have trained checkpoints saved in `weights/` (`finder.pt`, `checker.pt`)
+- The full two-stage pipeline is runnable end to end for the first time, via `notebooks/pipeline_demo.ipynb`
+
+**What's next**
+- Stage 2 has only ever seen **one** other species as "not ashwagandha" — the current number is trustworthy but represents an easy case
+- Priority: source 1-2 more negative species, ideally ones that look similar to ashwagandha, before trusting this beyond the current dataset
 
 ## Setup
 
@@ -110,13 +102,18 @@ python3 scripts/split_dataset.py
 #    auto-resumes if interrupted, checks the test set and shows the plots inline)
 notebooks/train_finder.ipynb
 
-# 5. Build the Stage 2 classification dataset (needs negatives, see above)
+# 5. Crop individual leaves out of the raw photos using the trained Finder --
+#    Stage 2 needs to train on the same kind of small single-leaf crop it'll
+#    actually be fed at inference time, not the whole cluttered photo
+python3 scripts/crop_positives.py --weights runs/finder/train/weights/best.pt
+
+# 6. Build the Stage 2 classification dataset (needs negatives, see above)
 python3 scripts/prepare_classifier_data.py
 
-# 6. Train the Checker
-python3 scripts/train_checker.py
+# 7. Train the Checker -- open this in Jupyter (same checkpointing/resume as the Finder)
+notebooks/train_checker.ipynb
 
-# 7. Try the full two-stage pipeline on new images -- open this in Jupyter
+# 8. Try the full two-stage pipeline on new images -- open this in Jupyter
 notebooks/pipeline_demo.ipynb
 ```
 
@@ -125,20 +122,21 @@ notebooks/pipeline_demo.ipynb
 ```
 data/
   raw/ashwagandha/       source images (committed)
-  raw/negatives/         other-species images for Stage 2 (not yet populated)
+  raw/negatives/         other-species images for Stage 2 (populated)
   detect/cvat_import.zip the CVAT-reviewed box labels (committed, not regeneratable)
-  detect/images|labels/, classify/   generated training datasets (gitignored,
-                                      rebuild with split_dataset.py / prepare_classifier_data.py)
+  detect/images|labels/, crops/, classify/   generated training datasets (gitignored,
+                                      rebuild with split_dataset.py / crop_positives.py / prepare_classifier_data.py)
 weights/                 model checkpoints (gitignored, see weights/README.md)
 notebooks/
   dataset_audit.ipynb    dataset dedupe/dimension/corruption audit, with duplicate photos shown inline
   train_finder.ipynb     fine-tunes the Stage 1 detector, auto-resumes if interrupted, checks the test set
+  train_checker.ipynb    fine-tunes the Stage 2 classifier, same auto-resume treatment
   pipeline_demo.ipynb    runs both stages on sample photos and displays the results inline
 scripts/
   auto_label.py          Stage 1 pseudo-labeling for bootstrapping box labels
   split_dataset.py       turns the CVAT export into a train/val/test dataset
-  prepare_classifier_data.py   builds the Stage 2 train/val folder structure
-  train_checker.py       fine-tunes the Stage 2 YOLO26-cls classifier
+  crop_positives.py      crops individual leaves out of the raw photos using the trained Finder
+  prepare_classifier_data.py   builds the Stage 2 train/val/test folder structure
 ```
 
 Why the split: `notebooks/` is for stuff you want to look at while it runs --

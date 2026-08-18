@@ -222,10 +222,12 @@ __marimo__/
 # they can't be regenerated. Everything else below can, via scripts/, so it's ignored)
 weights/*.pt
 /*.pt
+notebooks/*.pt
 runs/
 data/detect/images/
 data/detect/labels/
 data/detect/data.yaml
+data/crops/
 data/classify/
 data/audit_report.json
 

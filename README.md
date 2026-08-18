@@ -45,30 +45,33 @@ positive images, no negatives in hand at time of writing) — `yolo26-cls` is pr
 fast to train, and shares tooling with Stage 1. Worth revisiting once more data (and a
 multi-class need, e.g. distinguishing several look-alike species) exists.
 
-## Current Status
+## Progress So Far
+
+**Dataset**
+- 146 raw photos audited: 6 exact duplicates found (140 unique) — kept on disk, flagged so scripts dedupe automatically, nothing deleted
+- Stage 1 boxes: prior model auto-labeled first drafts → hand-corrected in CVAT → that correction is the real training data
+- Stage 2 negatives: 125 photos of one other leaf species, sourced separately
 
 **Stage 1 (Finder)**
-- Trained on the CVAT-reviewed boxes, evaluated on a genuinely held-out test set (14 photos never touched during training)
-- Test mAP50: **0.854**, test mAP50-95: **0.754**
-- Known weakness: less confident on dense, overlapping leaf clusters than on isolated leaves — not yet addressed
+- Test mAP50: **0.854**, test mAP50-95: **0.754** (14 photos never touched during training)
+- Tried stacking 4 augmentations at once to help with dense clusters — made results worse (mAP50-95 dropped to 0.580), reverted. Lesson: change one augmentation setting at a time so you can actually tell what helped or hurt
+- Still weaker on dense, overlapping leaf clusters than on isolated leaves — not yet addressed
 
-**Stage 2 (Checker)**
-Early training runs all reported a suspiciously perfect 100% accuracy — turned out to be the model learning shortcuts instead of species. Four separate shortcuts were found and fixed, one at a time, all in `scripts/prepare_classifier_data.py`:
+**Stage 2 (Checker) — four shortcuts found and fixed**
+Every early run scored a suspicious 100% accuracy. Each time, traced back to the data pipeline rather than the model, and fixed in `scripts/prepare_classifier_data.py`:
 
-1. **Photo composition** — positives were whole cluttered plant photos, negatives were isolated studio photos. Trivially separable without looking at species. Fixed by cropping positives down to single leaves before training.
-2. **Resampling fingerprint** — negatives had been resized/compressed one extra time compared to positives, leaving a detectable artifact. Fixed by routing both classes through an identical final resize/save step.
-3. **Background-blend seam** — only negatives were ever composited onto a new background, so the synthetic edge itself was a giveaway. Fixed by running both classes through the identical segment-and-composite step.
-4. **Dense-cluster segmentation gaps** — some leaves (in dense, overlapping clusters) have no real background nearby to segment against. Added a confidence check plus a cruder fallback segmentation method, so both classes get consistent treatment instead of one class occasionally leaking its untouched original.
+1. **Composition** — cluttered whole-plant photos vs. isolated studio photos was itself separable, without looking at species. Fixed: crop positives down to single leaves first.
+2. **Resampling fingerprint** — negatives had one extra resize/recompress pass baked in from their source dataset. Fixed: identical final resize+save step for both classes.
+3. **Blend seam** — only negatives were ever background-swapped, so the synthetic edge itself was the tell. Fixed: both classes go through the same segment-and-composite step.
+4. **Dense-cluster gaps** — some leaves have no real background nearby to segment against. Fixed: a confidence check plus a cruder fallback segmentation method, applied to both classes equally.
 
-Also added a proper held-out **test split** (previously only train/val — val is exactly what checkpoint selection optimizes against, so it was never a neutral number).
+Also added a real held-out **test split** (previously only train/val — val is exactly what checkpoint selection optimizes against, so it was never a neutral number).
 
-**Final, trustworthy result: 96.8% accuracy on 125 held-out test images.**
-- Every mistake was a false positive on the negative class — it never missed a real ashwagandha leaf
-- Expected, given negatives are outnumbered roughly 5:1 by positives
+**Result: 96.8% accuracy on 125 held-out test images.** Every mistake was a false positive on the negative class — never a missed ashwagandha leaf — consistent with negatives being outnumbered roughly 5:1 by positives, not a red flag.
 
-**Checkpoints**
-- Both stages now have trained checkpoints saved in `weights/` (`finder.pt`, `checker.pt`)
-- The full two-stage pipeline is runnable end to end for the first time, via `notebooks/pipeline_demo.ipynb`
+**Checkpoints & pipeline**
+- `weights/finder.pt` and `weights/checker.pt` hold the trained results from each stage
+- The full two-stage pipeline runs end to end for the first time, via `notebooks/pipeline_demo.ipynb`
 
 **What's next**
 - Stage 2 has only ever seen **one** other species as "not ashwagandha" — the current number is trustworthy but represents an easy case

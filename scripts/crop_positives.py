@@ -2,24 +2,6 @@
 the trained Finder -- so Stage 2 trains on the same kind of small, single-leaf
 image it'll actually be handed at inference time, not a whole cluttered photo.
 
-Why this exists: a whole plant-in-a-pot photo and an isolated single-leaf
-photo are trivially separable by composition alone (background clutter,
-image size, number of leaves visible) -- a classifier can hit ~100% "accuracy"
-without ever learning anything about what makes a leaf specifically
-ashwagandha. Training Stage 2 straight off data/raw/ashwagandha/ was doing
-exactly that. This crops the same way scripts/pipeline_infer.py does at
-inference time (same minimum-size filter), plus a PAD_FRAC margin around
-each box -- an edge-to-edge crop was leaving prepare_classifier_data.py's
-GrabCut step no background pixels to segment against, which made that step
-fail (and silently skip compositing) on ~35% of positives. If
-pipeline_infer.py doesn't pad boxes the same way at inference time, this
-crop geometry no longer matches production exactly -- worth reconciling
-once the padding fix is confirmed to help.
-
-    python3 scripts/crop_positives.py --weights runs/finder/train/weights/best.pt
-
-Then point prepare_classifier_data.py at the output (this is already its default):
-    python3 scripts/prepare_classifier_data.py
 """
 
 from __future__ import annotations

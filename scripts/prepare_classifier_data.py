@@ -1,56 +1,17 @@
-"""Build the Stage 2 (Checker) classification dataset from raw images.
+"""Build the Stage 2 (Checker) classification dataset.
 
-Positives come from data/crops/ashwagandha/ (cropped single-leaf images --
-run scripts/crop_positives.py first), not the raw whole-plant photos directly.
+Positives are cropped single-leaf images from data/crops/ashwagandha/.
+Negatives are sourced from data/raw/negatives/<source>/.
 
-Negatives come from data/raw/negatives/<source>/ -- but that source turned
-out to be single-leaf studio photos shot on a flat gray/mauve backdrop,
-versus positives that are crops of leaves sitting on natural soil. That
-background alone was a perfect giveaway (see the "still same" investigation:
-every positive had a warm brown background, every negative a plain gray
-one -- a model doesn't need to look at the leaf at all). So each negative
-gets its leaf segmented out (see segment_leaf) and re-composited onto a
-soil/background patch sampled from the actual ashwagandha photos.
+To reduce dataset-specific visual cues, both classes undergo the same
+segmentation, background compositing, resizing, and JPEG encoding pipeline.
+Negative leaves are composited onto background patches sampled from the
+ashwagandha images.
 
-Second giveaway, found after fixing the background: every file under
-data/raw/negatives/downloaded_leaves/ is exactly 256x256 -- a public dataset
-that was already resized once by whoever built it -- versus the ashwagandha
-photos, native 600x450 camera output. Compositing+resizing the negatives
-put them through two generations of resampling/recompression; positives,
-copied straight from crop_positives.py's output, only ever had one. That
-alone is enough for a CNN to hit 100% by detecting "how many times was this
-resampled" instead of looking at the leaf (same class of bug as double-JPEG
-detection). Fix: both classes go through the identical final
-resize-to-FINAL_SIZE + fixed-quality JPEG save, so that fingerprint can't
-correlate with the label anymore either.
-
-Third giveaway: only negatives were ever run through segment_leaf +
-composite_on_background, so the GrabCut alpha-blend seam (soft edge,
-mismatched lighting/color temperature between the leaf and whatever
-background patch it landed on) was itself a perfect tell -- every
-composited edge was a negative, every untouched photographic edge was a
-positive, regardless of species. Fix: positives now go through the exact
-same segment_leaf -> composite_on_background pipeline as negatives (see
-segment_and_composite), landing on a patch from the same background pool.
-
-That fix exposed a fourth one: some positives (leaves in dense, overlapping
-clusters) have no real background anywhere near them, so GrabCut's
-rectangle-margin assumption can't find any -- not a padding problem, a
-content one. An earlier attempt at fixing this made a matching fraction of
-*negatives* skip compositing too (to equalize the fallback rate), but that
-was wrong: when a positive falls back it still shows real soil (same as a
-composited one), while a negative falling back shows its original flat
-studio backdrop -- reintroducing the very first giveaway for that whole
-slice of negatives. Rate-matching doesn't help when the content on fallback
-still differs by class. Real fix: segment_leaf now tries a second, cruder
-method (_color_threshold_mask, plain hue/saturation classification instead
-of GrabCut's rectangle assumption) whenever GrabCut isn't confident, applied
-identically to both classes -- so a crop only ever shows its untouched
-original when *no* segmentation method can find a separable background,
-which by then means there's no background left in the crop to leak a class
-signal from either way.
+Segmentation uses GrabCut with a color-based fallback when confidence is
+insufficient. The same procedure is applied to both classes to maintain
+consistent preprocessing and minimize class-correlated artifacts.
 """
-
 from __future__ import annotations
 
 import argparse
@@ -68,19 +29,10 @@ from common import REPO_ROOT, ensure_dir, list_images
 
 SEED = 42
 VAL_FRACTION = 0.15
-TEST_FRACTION = 0.15  # held out and never touched by training or checkpoint selection --
-                      # val is what best.pt gets chosen against, so it's not a neutral
-                      # measurement; test is the honest number (same reasoning as
-                      # split_dataset.py's val/test split for Stage 1)
-FINAL_SIZE = 224     # matches train_checker.ipynb's IMGSZ -- every image in the dataset,
-                      # positive or negative, gets resized to exactly this and re-saved at
-                      # the same JPEG quality, so resampling/recompression history can't
-                      # end up correlated with the class label (see module docstring)
+TEST_FRACTION = 0.15  
+FINAL_SIZE = 224    
 JPEG_QUALITY = 95
-CLARITY_THRESHOLD = 0.70  # fraction of pixels GrabCut must be *certain* about (not just
-                          # "probable") before its mask is trusted -- below this, retry
-                          # with the cruder but more robust color-threshold method instead
-                          # (see segment_leaf / _color_threshold_mask)
+CLARITY_THRESHOLD = 0.70  
 
 
 def dedupe_by_audit_report(images: list[Path], report_path: Path) -> list[Path]:
@@ -89,7 +41,7 @@ def dedupe_by_audit_report(images: list[Path], report_path: Path) -> list[Path]:
     report = json.loads(report_path.read_text())
     drop = set()
     for group in report.get("duplicate_groups", []):
-        drop.update(group[1:])  # keep the first name in each group, drop the rest
+        drop.update(group[1:])  # keeps the first name in each group, drop the rest
     return [p for p in images if p.name not in drop]
 
 
@@ -144,18 +96,16 @@ def build_background_pool(source_dir: Path, count: int, patch_size: int,
 
 
 def _color_threshold_mask(image_bgr: np.ndarray, strict: bool) -> np.ndarray | None:
-    # Fallback for when GrabCut's rectangle-margin assumption doesn't hold -- e.g. a leaf
-    # crop from a dense, overlapping cluster with no real background nearby. Classifies
-    # every pixel independently by hue/saturation instead of assuming a background border
-    # exists, so it still works when the box is embedded in foliage.
-    #
-    # strict matches _is_background_like's green-band logic -- accurate, low false-positive
-    # rate on real soil/background, tried first. The loose band is only tried as a last
-    # resort (see _segment_with_color_threshold) for leaves strict can't catch: disease
-    # spotting desaturates a leaf below strict's saturation floor, and some leaves' hue
-    # sits just outside strict's band entirely. Measured ~30% false-positive rate on real
-    # soil patches -- too noisy to use as the default, but only ever reached when nothing
-    # better worked, so an imperfect composite there still beats showing the image untouched.
+# Fallback for cases where GrabCut's rectangle-margin assumption is unreliable,
+# such as leaves from dense or overlapping clusters with limited visible background.
+# This method classifies pixels independently using hue and saturation, avoiding
+# reliance on a background border.
+#
+# The strict threshold follows _is_background_like's green-band logic and is
+# preferred for its lower false-positive rate on real soil/background. A looser
+# threshold is used only as a final fallback for cases where disease-related
+# desaturation or hue variation prevents the strict threshold from separating
+# foreground and background reliably.
     hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
     h, s = hsv[:, :, 0], hsv[:, :, 1]
     if strict:
@@ -165,9 +115,7 @@ def _color_threshold_mask(image_bgr: np.ndarray, strict: bool) -> np.ndarray | N
     fg = green.astype(np.float32)
     frac = fg.mean()
     if frac < 0.05 or frac > 0.97:
-        return None  # nothing (or everything) is leaf-colored -- and if the whole crop
-                      # is leaf-colored, there's no background left to swap out anyway,
-                      # so showing it untouched doesn't leak a class-specific signal
+        return None  
     return np.clip(cv2.GaussianBlur(fg, (0, 0), sigmaX=2.5), 0.0, 1.0)
 
 
@@ -200,9 +148,7 @@ def segment_leaf(image_bgr: np.ndarray) -> np.ndarray | None:
     frac = fg.mean()
     clarity = certain.mean()
     if frac < 0.05 or frac > 0.97 or clarity < CLARITY_THRESHOLD:
-        # grabcut collapsed to "everything"/"nothing", or wasn't confident about enough
-        # of the image (e.g. no real background nearby to build a background model
-        # from) -- retry with the cruder but more robust color-threshold method
+     
         return _segment_with_color_threshold(image_bgr)
 
     alpha = cv2.GaussianBlur(fg, (0, 0), sigmaX=2.5)
@@ -222,14 +168,7 @@ def composite_on_background(leaf_bgr: np.ndarray, alpha: np.ndarray,
 
 def segment_and_composite(background_pool: list[np.ndarray],
                            rng: random.Random) -> Callable[[Path, Path], None]:
-    # Shared by both classes: segment the leaf out (GrabCut, falling back to a cruder
-    # color-threshold method when GrabCut isn't confident -- see segment_leaf) and
-    # recomposite it onto a soil patch from the pool, then resize+recompress at
-    # FINAL_SIZE/JPEG_QUALITY. Running both classes through the identical pipeline means
-    # the blend-seam artifact and resampling-generation count can't correlate with the
-    # label -- only the leaf pixels inside the mask differ between classes. The rare
-    # remaining fallback case is safe either way, since by then there's no background
-    # left in the crop for either class to leak a signal from.
+
     stats = {"composited": 0, "fallback": 0, "fallback_files": []}
 
     def _write(src: Path, dst: Path) -> None:

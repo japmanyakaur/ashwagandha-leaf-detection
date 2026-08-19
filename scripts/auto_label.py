@@ -1,14 +1,7 @@
-"""Runs the old leaf-localisation model over the raw ashwagandha photos to get a
-first-draft set of bounding boxes. These are just guesses -- it'll miss some
-leaves and box some wrong things, that's fine, that's expected. Point is it's a
-lot faster to correct a guessed box in CVAT than to draw ~140 photos of boxes
-from nothing.
+"""Runs the prior model over the raw ashwagandha photos to get a
+first-draft set of bounding boxes. Used for drawing boxes in CVAT, which are then exported 
+to YOLO 1.1 format for training the final model.
 
-After this: look through data/detect/preview/*.jpg, fix the boxes up in CVAT,
-export as "YOLO 1.1" format, save that export as data/detect/cvat_import.zip,
-then run split_dataset.py.
-
-    python3 scripts/auto_label.py --weights weights/best_m.pt
 """
 
 from __future__ import annotations

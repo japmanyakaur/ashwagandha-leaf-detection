@@ -126,33 +126,54 @@ def _segment_with_color_threshold(image_bgr: np.ndarray) -> np.ndarray | None:
     return mask
 
 
+MAX_SEGMENT_DIM = 800  # GrabCut (and the color-threshold fallback) get dramatically
+                        # slower on large images with no real gain in mask quality --
+                        # segmenting at a capped resolution and upscaling the resulting
+                        # soft alpha mask is visually indistinguishable after the
+                        # existing blur, but orders of magnitude faster. Matters once
+                        # negative sources aren't all ~256x256 studio photos anymore --
+                        # some downloaded species photos are 12+ megapixels, which took
+                        # minutes each at full resolution instead of under a second.
+
+
 def segment_leaf(image_bgr: np.ndarray) -> np.ndarray | None:
     """Returns a soft alpha mask (float32, 0..1, same HxW as image_bgr) isolating the
     leaf from its backdrop, or None if no method can find one -- which by then means
     the crop is genuinely all-background or all-leaf, so there's nothing to swap out
     either way (see module docstring, "fourth giveaway")."""
     h, w = image_bgr.shape[:2]
-    margin = 0.06
-    rect = (int(w * margin), int(h * margin), int(w * (1 - 2 * margin)), int(h * (1 - 2 * margin)))
+    scale = min(1.0, MAX_SEGMENT_DIM / max(h, w))
+    small = (cv2.resize(image_bgr, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+             if scale < 1.0 else image_bgr)
+    sh, sw = small.shape[:2]
 
-    mask = np.zeros((h, w), np.uint8)
+    margin = 0.06
+    rect = (int(sw * margin), int(sh * margin), int(sw * (1 - 2 * margin)), int(sh * (1 - 2 * margin)))
+
+    mask = np.zeros((sh, sw), np.uint8)
     bgd_model = np.zeros((1, 65), np.float64)
     fgd_model = np.zeros((1, 65), np.float64)
     try:
-        cv2.grabCut(image_bgr, mask, rect, bgd_model, fgd_model, 5, cv2.GC_INIT_WITH_RECT)
+        cv2.grabCut(small, mask, rect, bgd_model, fgd_model, 5, cv2.GC_INIT_WITH_RECT)
+        fg = np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 1.0, 0.0).astype(np.float32)
+        certain = np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_BGD), 1.0, 0.0)
+        frac = fg.mean()
+        clarity = certain.mean()
+        if frac < 0.05 or frac > 0.97 or clarity < CLARITY_THRESHOLD:
+            # grabcut collapsed to "everything"/"nothing", or wasn't confident about
+            # enough of the image -- retry with the cruder but more robust
+            # color-threshold method
+            alpha_small = _segment_with_color_threshold(small)
+        else:
+            alpha_small = np.clip(cv2.GaussianBlur(fg, (0, 0), sigmaX=2.5), 0.0, 1.0)
     except cv2.error:
-        return _segment_with_color_threshold(image_bgr)
+        alpha_small = _segment_with_color_threshold(small)
 
-    fg = np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 1.0, 0.0).astype(np.float32)
-    certain = np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_BGD), 1.0, 0.0)
-    frac = fg.mean()
-    clarity = certain.mean()
-    if frac < 0.05 or frac > 0.97 or clarity < CLARITY_THRESHOLD:
-     
-        return _segment_with_color_threshold(image_bgr)
-
-    alpha = cv2.GaussianBlur(fg, (0, 0), sigmaX=2.5)
-    return np.clip(alpha, 0.0, 1.0)
+    if alpha_small is None:
+        return None
+    if scale < 1.0:
+        return cv2.resize(alpha_small, (w, h), interpolation=cv2.INTER_LINEAR)
+    return alpha_small
 
 
 def composite_on_background(leaf_bgr: np.ndarray, alpha: np.ndarray,

@@ -41,7 +41,7 @@ def dedupe_by_audit_report(images: list[Path], report_path: Path) -> list[Path]:
     report = json.loads(report_path.read_text())
     drop = set()
     for group in report.get("duplicate_groups", []):
-        drop.update(group[1:])  # keeps the first name in each group, drop the rest
+        drop.update(group[1:])  
     return [p for p in images if p.name not in drop]
 
 
@@ -55,10 +55,6 @@ def collect_negatives(negatives_root: Path) -> list[Path]:
 
 
 def _is_background_like(patch_bgr: np.ndarray) -> bool:
-    # soil/mulch in the ashwagandha photos is warm brown/tan; leaves are
-    # strongly green. Reject any candidate patch whose hue falls in the green
-    # band with real saturation, so the background pool doesn't get
-    # contaminated with leaf material.
     hsv = cv2.cvtColor(patch_bgr, cv2.COLOR_BGR2HSV)
     green = (hsv[:, :, 0] >= 35) & (hsv[:, :, 0] <= 85) & (hsv[:, :, 1] >= 60)
     return green.mean() < 0.15
@@ -96,16 +92,6 @@ def build_background_pool(source_dir: Path, count: int, patch_size: int,
 
 
 def _color_threshold_mask(image_bgr: np.ndarray, strict: bool) -> np.ndarray | None:
-# Fallback for cases where GrabCut's rectangle-margin assumption is unreliable,
-# such as leaves from dense or overlapping clusters with limited visible background.
-# This method classifies pixels independently using hue and saturation, avoiding
-# reliance on a background border.
-#
-# The strict threshold follows _is_background_like's green-band logic and is
-# preferred for its lower false-positive rate on real soil/background. A looser
-# threshold is used only as a final fallback for cases where disease-related
-# desaturation or hue variation prevents the strict threshold from separating
-# foreground and background reliably.
     hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
     h, s = hsv[:, :, 0], hsv[:, :, 1]
     if strict:
@@ -126,14 +112,7 @@ def _segment_with_color_threshold(image_bgr: np.ndarray) -> np.ndarray | None:
     return mask
 
 
-MAX_SEGMENT_DIM = 800  # GrabCut (and the color-threshold fallback) get dramatically
-                        # slower on large images with no real gain in mask quality --
-                        # segmenting at a capped resolution and upscaling the resulting
-                        # soft alpha mask is visually indistinguishable after the
-                        # existing blur, but orders of magnitude faster. Matters once
-                        # negative sources aren't all ~256x256 studio photos anymore --
-                        # some downloaded species photos are 12+ megapixels, which took
-                        # minutes each at full resolution instead of under a second.
+MAX_SEGMENT_DIM = 800 
 
 
 def segment_leaf(image_bgr: np.ndarray) -> np.ndarray | None:
